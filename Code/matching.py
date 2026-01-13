@@ -9,7 +9,7 @@ from pathlib import Path
 import json
 import os
 import bisect
-
+import time
 
 # ---------- STEP 1: STFT ----------
 def stft(signal, sr, fft_size=2048, hop_size=512, window=np.hanning):
@@ -228,12 +228,16 @@ class FingerprintDB:
 
     def match(self, query_hashes):
         matches = []
+        start_time= time.time()
         for h, qt in query_hashes:
-            # print(self.db)
+            # print(len(self.db))
             if h in self.db:
                 for song_id, st in self.db[h]:
                     offset = round(st - qt, 2)  # time alignment
                     matches.append((song_id, offset))
+        end_time= time.time()
+        print(f'Matching Time: {end_time - start_time} seconds')
+        print('Mathing Done')
         return matches
         # dt_tol = 0.01
         # f_tol = self.f_tol
@@ -278,14 +282,18 @@ class FingerprintDB:
 
 # ---------- STEP 5: SONG IDENTIFICATION ----------
 def identify_song(db, query_hashes):
+    
     matches = db.match(query_hashes)
     if not matches:
         return None
+    start_time=time.time()
 
     counter = Counter(matches)
     best_match, votes = counter.most_common(1)[0]
     print(counter.most_common(20))
     song_id, offset = best_match
+    print(time.time()-start_time)
+    
     return song_id, votes
 
 def compute_frequency_error(orig_const, query_const, time_tolerance=0.05):
@@ -410,12 +418,12 @@ def animate_constellation(signal, sr, constellation, hashes, save_path=None, int
 
     return ani
 
-def recognize_uploaded_song(file_path="/home/vibgyor/BTP/Musical_Note_Recognition/query/jeena_jeena_recording.mp3"):
+def recognize_uploaded_song(file_path="query/jeena_jeena_recording.mp3"):
     """
     file_path: path to uploaded audio file
     Returns: best match song_id or None
     """
-    MUSIC_DIR = "/home/vibgyor/BTP/Musical_Note_Recognition/music_demo"
+    MUSIC_DIR = "music_demo"
     db = FingerprintDB()
     saved_hashes = load_hash_db()
 
