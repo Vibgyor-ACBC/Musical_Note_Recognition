@@ -175,6 +175,45 @@ def generate_hashes(constellation, fan_out=4, max_freq=5000):
                     hashes.append((hash_val, round(t1, 2)))
     return hashes
 
+HASH_DB_PATH = "hashes_db.json"
+
+def load_hash_db(path=HASH_DB_PATH):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        # corrupt file or read error -> treat as empty
+        return {}
+    # convert stored lists back to tuples where appropriate
+    saved = {}
+    for song_id, entries in raw.items():
+        converted = []
+        for item in entries:
+            try:
+                h_list, t = item
+                h_tuple = tuple(h_list)
+                converted.append((h_tuple, float(t)))
+            except Exception:
+                continue
+        if converted:
+            saved[song_id] = converted
+    return saved
+
+def save_hash_db(saved, path=HASH_DB_PATH):
+    # convert tuples to lists for JSON
+    raw = {}
+    for song_id, entries in saved.items():
+        raw_entries = []
+        for (h, t) in entries:
+            raw_entries.append([list(h), float(t)])
+        raw[song_id] = raw_entries
+    # write atomically
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(raw, f, indent=2)
+    os.replace(tmp, path)
 
 # ---------- STEP 4: DATABASE ----------
 class FingerprintDB:
@@ -371,74 +410,153 @@ def animate_constellation(signal, sr, constellation, hashes, save_path=None, int
 
     return ani
 
-# ---------- DEMO ----------
-if __name__ == "__main__":
-    # Database
+def recognize_uploaded_song(file_path="/home/vibgyor/BTP/Musical_Note_Recognition/query/jeena_jeena_recording.mp3"):
+    """
+    file_path: path to uploaded audio file
+    Returns: best match song_id or None
+    """
+    MUSIC_DIR = "/home/vibgyor/BTP/Musical_Note_Recognition/music_demo"
     db = FingerprintDB()
+    saved_hashes = load_hash_db()
 
-    # Songs to index (replace with your mp3s)
-    songs = {
-        "song1": "/home/vibgyor/BTP/musical/music/017_TujheDekhaToh.mp3",
-        # "song2": "/home/vibgyor/BTP/musical/music/010_DheereDheere.mp3",
-        # "song3": "/home/vibgyor/BTP/musical/music/001_6AM.mp3",
-        # "song4": "/home/vibgyor/BTP/musical/music/003_AgarTumSaathHo.mp3",
-        # "song5": "/home/vibgyor/BTP/musical/music/009_DesiKalakaar.mp3",
-        # "song6": "/home/vibgyor/BTP/musical/music/011_HoGyaHaiTujhko.mp3",
-        # "song7": "/home/vibgyor/BTP/musical/music/014_Pachtaoge.mp3",
-        # "song8": "/home/vibgyor/BTP/musical/music/004_Alagaasman.mp3",
-        "song9": "/home/vibgyor/BTP/musical/music/012_JeenaJeena.mp3",
-        "song10": "/home/vibgyor/BTP/musical/music/008_ChaarKadam.mp3",
-        "song11": "/home/vibgyor/BTP/musical/music/007_ChaandBaaliyan.mp3",
-        # "song12": "/home/vibgyor/BTP/musical/music/002_AbhinaJaoChhodKar.mp3",
-        # "song13": "/home/vibgyor/BTP/musical/music/005_BadeAchheLagteHain.mp3",
-        # "song14": "/home/vibgyor/BTP/musical/music/015_PalPalDilKePaas.mp3",
-        # "song15": "/home/vibgyor/BTP/musical/music/020_YeSamma.mp3",
-        # "song16": "/home/vibgyor/BTP/musical/music/021_YehRateinYehMausam.mp3",
-    }
+    # Dynamically build songs dict from all .mp3 files in the directory
+    songs = {}
+    for filename in os.listdir(MUSIC_DIR):
+        if filename.lower().endswith(".mp3"):
+            song_name = Path(filename).stem.replace("_", " ")   # e.g. Jeena_Jeena → Jeena Jeena
+            songs[song_name] = os.path.join(MUSIC_DIR, filename)
 
-    # Index songs
-    song_const={}
+    # Step 1: Build fingerprint DB
     for song_id, path in songs.items():
-        sig, sr = librosa.load(path, sr=None, mono=True)
-        sig /= np.max(np.abs(sig))
+        if song_id in saved_hashes:
+            db.add_song(song_id, saved_hashes[song_id])
+            print(f"Loaded saved hashes for {song_id} ({len(saved_hashes[song_id])} hashes)")
+            continue
 
+        try:
+            sig, sr = librosa.load(path, sr=None, mono=True)
+        except Exception as e:
+            print(f"Failed to load {path}: {e}")
+            continue
+
+        # Normalize
+        peak = np.max(np.abs(sig)) if sig.size else 0.0
+        if peak > 0:
+            sig = sig / peak
+        else:
+            print(f"Warning: {path} appears silent, skipping.")
+            continue
+
+        # Generate hashes
         mag, freqs, times = stft(sig, sr)
-        # filtered_magnitude = time_frequency_filter(mag,smoothing=(7, 7),threshold_db=6)
-        song_const[song_id]=[mag,freqs,times]
-    
         filtered_mag = time_frequency_filter(mag, filter_size=(3, 3)) 
-        
         const_map = get_constellation_map(filtered_mag, freqs, times)
         hashes = generate_hashes(const_map)
+
         db.add_song(song_id, hashes)
         print(f"Indexed {song_id} with {len(hashes)} hashes")
 
-    # Query (snippet of song1)
-    song_path = Path("/home/vibgyor/BTP/musical/query/jeena_jeena_recording.mp3")
-    query_sig, sr = librosa.load(song_path, sr=None, mono=True)
-    query_sig /= np.max(np.abs(query_sig))
+        # Save hashes for persistence
+        saved_hashes[song_id] = [(tuple(h), float(t)) for h, t in hashes]
+        save_hash_db(saved_hashes)
 
+    # Step 2: Process uploaded file
+    # if file_path is not None:
+    song_path = Path(file_path)
+    query_sig, sr = librosa.load(song_path, sr=None, mono=True)
+    # else:
+    #     print("🎤 Listening... play music now!")
+    #     recording = sd.rec(int(duration * sr), samplerate=sr,
+    #                        channels=1, dtype='float32')
+    #     sd.wait()
+    #     query_sig = recording.flatten()
+    #     print("✔ Audio captured, processing...")
+    query_sig /= np.max(np.abs(query_sig))
     mag, freqs, times = stft(query_sig, sr)
-    # filtered_magnitude = time_frequency_filter(mag,smoothing=(7, 7),threshold_db=6)
-    
     filtered_mag = time_frequency_filter(mag, filter_size=(3, 3)) 
-    
     const_map = get_constellation_map(filtered_mag, freqs, times)
     query_hashes = generate_hashes(const_map)
     print(f"Indexed {song_path.stem} with {len(query_hashes)} hashes")
 
+    # Step 3: Identify
     result = identify_song(db, query_hashes)
     if result:
-        print(f"Best match: {result[0]} with {result[1]} votes")
-        # time_err,freq_err=compute_frequency_error(const_map,song_const[result[0]])
-        original_curve= dominant_frequency_curve(song_const[result[0]][0],song_const[result[0]][1])
-        query_curve= dominant_frequency_curve(mag,freqs)
-        # plot_curve(original_curve,song_const[result[0]][2],query_curve,times)
-
+        print(f"Best match {result[0]} with {result[1]} votes")
+        return result[0]
     else:
-        print("No match found")
+        return "No match found"
 
-    # Animate (show live)
+# ---------- DEMO ----------
+if __name__ == "__main__":
+    print(recognize_uploaded_song())
+
+    # Database
+    # db = FingerprintDB()
+
+    # # Songs to index (replace with your mp3s)
+    # songs = {
+    #     "song1": "/home/vibgyor/BTP/musical/music/017_TujheDekhaToh.mp3",
+    #     # "song2": "/home/vibgyor/BTP/musical/music/010_DheereDheere.mp3",
+    #     # "song3": "/home/vibgyor/BTP/musical/music/001_6AM.mp3",
+    #     # "song4": "/home/vibgyor/BTP/musical/music/003_AgarTumSaathHo.mp3",
+    #     # "song5": "/home/vibgyor/BTP/musical/music/009_DesiKalakaar.mp3",
+    #     # "song6": "/home/vibgyor/BTP/musical/music/011_HoGyaHaiTujhko.mp3",
+    #     # "song7": "/home/vibgyor/BTP/musical/music/014_Pachtaoge.mp3",
+    #     # "song8": "/home/vibgyor/BTP/musical/music/004_Alagaasman.mp3",
+    #     "song9": "/home/vibgyor/BTP/musical/music/012_JeenaJeena.mp3",
+    #     "song10": "/home/vibgyor/BTP/musical/music/008_ChaarKadam.mp3",
+    #     "song11": "/home/vibgyor/BTP/musical/music/007_ChaandBaaliyan.mp3",
+    #     # "song12": "/home/vibgyor/BTP/musical/music/002_AbhinaJaoChhodKar.mp3",
+    #     # "song13": "/home/vibgyor/BTP/musical/music/005_BadeAchheLagteHain.mp3",
+    #     # "song14": "/home/vibgyor/BTP/musical/music/015_PalPalDilKePaas.mp3",
+    #     # "song15": "/home/vibgyor/BTP/musical/music/020_YeSamma.mp3",
+    #     # "song16": "/home/vibgyor/BTP/musical/music/021_YehRateinYehMausam.mp3",
+    # }
+
+    # # Index songs
+    # saved_hases = load_hash_db()
+    # song_const={}
+    # for song_id, path in songs.items():
+    #     sig, sr = librosa.load(path, sr=None, mono=True)
+    #     sig /= np.max(np.abs(sig))
+
+    #     mag, freqs, times = stft(sig, sr)
+    #     # filtered_magnitude = time_frequency_filter(mag,smoothing=(7, 7),threshold_db=6)
+    #     song_const[song_id]=[mag,freqs,times]
+    
+    #     filtered_mag = time_frequency_filter(mag, filter_size=(3, 3)) 
+        
+    #     const_map = get_constellation_map(filtered_mag, freqs, times)
+    #     hashes = generate_hashes(const_map)
+    #     db.add_song(song_id, hashes)
+    #     print(f"Indexed {song_id} with {len(hashes)} hashes")
+
+    # # Query (snippet of song1)
+    # song_path = Path("/home/vibgyor/BTP/musical/query/jeena_jeena_recording.mp3")
+    # query_sig, sr = librosa.load(song_path, sr=None, mono=True)
+    # query_sig /= np.max(np.abs(query_sig))
+
+    # mag, freqs, times = stft(query_sig, sr)
+    # # filtered_magnitude = time_frequency_filter(mag,smoothing=(7, 7),threshold_db=6)
+    
+    # filtered_mag = time_frequency_filter(mag, filter_size=(3, 3)) 
+    
+    # const_map = get_constellation_map(filtered_mag, freqs, times)
+    # query_hashes = generate_hashes(const_map)
+    # print(f"Indexed {song_path.stem} with {len(query_hashes)} hashes")
+
+    # result = identify_song(db, query_hashes)
+    # if result:
+    #     print(f"Best match: {result[0]} with {result[1]} votes")
+    #     # time_err,freq_err=compute_frequency_error(const_map,song_const[result[0]])
+    #     original_curve= dominant_frequency_curve(song_const[result[0]][0],song_const[result[0]][1])
+    #     query_curve= dominant_frequency_curve(mag,freqs)
+    #     # plot_curve(original_curve,song_const[result[0]][2],query_curve,times)
+
+    # else:
+    #     print("No match found")
+
+    # # Animate (show live)
     # animate_constellation(query_sig, sr, const_map, hashes, save_path=None)
 
     # Or save to mp4/gif
