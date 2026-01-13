@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube to MP3</title>
+    <style>
+        body { text-align: center; margin-top: 50px; font-family: Arial; }
+        nav { background: #333; padding: 10px; }
+        nav a { color: white; text-decoration: none; margin: 0 15px; }
+        nav a:hover { text-decoration: underline; }
+        input { padding: 10px; width: 300px; }
+        button { padding: 10px 20px; margin-left: 10px; cursor: pointer; }
+        #result { margin-top: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">🎤 Record Audio</a>
+        <a href="/youtube">🎵 YouTube to MP3</a>
+        <a href="/upload">Upload</a>
+        <a href="/recognize">Recognize</a>
+    </nav>
+
+    <h1>🎵 YouTube to MP3</h1>
+    <input type="text" id="youtube_url" placeholder="Enter YouTube link" />
+    <button onclick="downloadSong()">Download</button>
+    <div id="result"></div>
+
+    <script>
+        function downloadSong() {
+            let url = document.getElementById("youtube_url").value;
+            if (!url) {
+                document.getElementById("result").innerText = "Please enter a YouTube link.";
+                return;
+            }
+
+            document.getElementById("result").innerText = "Downloading... Please wait.";
+
+            fetch("/download_youtube", {
+                method: "POST",
+                body: new URLSearchParams({ youtube_url: url }),
+                headers: { "Content-Type": "application/x-www-form-urlencoded" }
+            })
+            .then(res => res.text())
+            .then(data => {
+                document.getElementById("result").innerHTML = data;
+            })
+            .catch(err => {
+                document.getElementById("result").innerText = "Error: " + err;
+            });
+        }
+    </script>
+</body>
+</html>

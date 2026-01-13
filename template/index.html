@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Recorder</title>
+    <style>
+        body { text-align: center; margin-top: 50px; font-family: Arial, sans-serif; }
+        nav { background: #333; padding: 10px; }
+        nav a { color: white; text-decoration: none; margin: 0 15px; }
+        nav a:hover { text-decoration: underline; }
+        button { font-size: 18px; padding: 10px 20px; margin: 10px; cursor: pointer; }
+        input { padding: 8px; font-size: 16px; margin-top: 10px; }
+        #timer { font-size: 18px; color: darkred; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">🎤 Record Audio</a>
+        <a href="/youtube">🎵 YouTube to MP3</a>
+        <a href="/upload">Upload</a>
+        <a href="/recognize">Recognize</a>
+    </nav>
+
+    <h1>🎤 Audio Recorder</h1>
+    <button id="startBtn">Start Recording</button>
+    <button id="stopBtn" disabled>Stop Recording</button>
+    <br>
+    <input type="text" id="filename" placeholder="Enter filename (optional)">
+    <p id="timer">⏱ Timer: 0s</p>
+    <p id="status"></p>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let timerInterval;
+        let secondsElapsed = 0;
+
+        document.getElementById("startBtn").onclick = async () => {
+            audioChunks = [];
+            let stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) audioChunks.push(e.data);
+            };
+
+            mediaRecorder.start();
+            document.getElementById("status").innerText = "Recording...";
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+
+            // Start timer
+            secondsElapsed = 0;
+            document.getElementById("timer").innerText = "⏱ Timer: 0s";
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                document.getElementById("timer").innerText = `⏱ Timer: ${secondsElapsed}s`;
+            }, 1000);
+
+            // Auto-stop after 20 seconds
+            setTimeout(() => {
+                if (mediaRecorder.state !== "inactive") {
+                    stopRecording();
+                }
+            }, 20000);
+        };
+
+        document.getElementById("stopBtn").onclick = stopRecording;
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            clearInterval(timerInterval);
+            document.getElementById("status").innerText = "Recording stopped.";
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+
+            mediaRecorder.onstop = () => {
+                let blob = new Blob(audioChunks, { type: "audio/webm" });
+                let filename = document.getElementById("filename").value;
+                let formData = new FormData();
+                formData.append("audio_data", blob, "recording.webm");
+                formData.append("filename", filename);
+
+                fetch("/save_audio", {
+                    method: "POST",
+                    body: formData
+                })
+                .then(res => res.text())
+                .then(data => {
+                    document.getElementById("status").innerHTML = data;
+                });
+            };
+        }
+    </script>
+</body>
+</html>
