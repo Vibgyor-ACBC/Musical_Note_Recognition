@@ -246,67 +246,67 @@ class FingerprintDB:
         for h, t in hashes:
             self.db[h].append((song_id, t))
 
-    # def match(self, query_hashes, n_workers=None):
-    #     start_time = time.time()
+    def match(self, query_hashes, n_workers=None):
+        start_time = time.time()
 
-    #     if n_workers is None:
-    #         n_workers = min(8, len(query_hashes))  # safe default
+        if n_workers is None:
+            n_workers = min(8, len(query_hashes))  # safe default
 
-    #     # ---- split query_hashes into chunks ----
-    #     chunk_size = math.ceil(len(query_hashes) / n_workers)
-    #     chunks = [
-    #         query_hashes[i:i + chunk_size]
-    #         for i in range(0, len(query_hashes), chunk_size)
-    #     ]
+        # ---- split query_hashes into chunks ----
+        chunk_size = math.ceil(len(query_hashes) / n_workers)
+        chunks = [
+            query_hashes[i:i + chunk_size]
+            for i in range(0, len(query_hashes), chunk_size)
+        ]
 
-    #     # ---- parallel execution ----
-    #     with ProcessPoolExecutor(max_workers=n_workers) as executor:
-    #         results = executor.map(
-    #             match_worker,
-    #             [(chunk, self.db) for chunk in chunks]
-    #         )
+        # ---- parallel execution ----
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            results = executor.map(
+                match_worker,
+                [(chunk, self.db) for chunk in chunks]
+            )
 
-    #     # ---- reduce step ----
-    #     global_counter = Counter()
-    #     for local_counter in results:
-    #         global_counter.update(local_counter)
+        # ---- reduce step ----
+        global_counter = Counter()
+        for local_counter in results:
+            global_counter.update(local_counter)
 
-    #     # ---- find best match ----
-    #     if not global_counter:
-    #         return ("", 0)
+        # ---- find best match ----
+        if not global_counter:
+            return ("", 0)
 
-    #     (output_song, _), max_vote = max(
-    #         global_counter.items(),
-    #         key=lambda x: x[1]
-    #     )
+        (output_song, _), max_vote = max(
+            global_counter.items(),
+            key=lambda x: x[1]
+        )
 
-    #     end_time = time.time()
-    #     print(f"Matching Time: {end_time - start_time:.3f} seconds")
-    #     print("Matching Done")
+        end_time = time.time()
+        print(f"Matching Time: {end_time - start_time:.3f} seconds")
+        print("Matching Done")
 
-    #     return output_song, max_vote
+        return output_song, max_vote
 
-    def match(self, query_hashes):
-        matches = []
-        counter_match={}
-        max_vote = -1
-        output_song = ''
-        start_time= time.time()
-        for h, qt in query_hashes:
-            # print(len(self.db))
-            if h in self.db:
-                for song_id, st in self.db[h]:
-                    offset = round(st - qt, 2)  # time alignment
-                    counter_match[(song_id,offset)]= counter_match.get((song_id,offset),0)+1
-                    if counter_match[(song_id,offset)]>max_vote:
-                        max_vote = counter_match[(song_id,offset)]
-                        output_song=song_id
-                    # matches.append((song_id, offset))
-        end_time= time.time()
-        print(f'Matching Time: {end_time - start_time} seconds')
-        print('Mathing Done')
-        # print(output_song)
-        return (output_song,max_vote)
+    # def match(self, query_hashes):
+    #     matches = []
+    #     counter_match={}
+    #     max_vote = -1
+    #     output_song = ''
+    #     start_time= time.time()
+    #     for h, qt in query_hashes:
+    #         # print(len(self.db))
+    #         if h in self.db:
+    #             for song_id, st in self.db[h]:
+    #                 offset = round(st - qt, 2)  # time alignment
+    #                 counter_match[(song_id,offset)]= counter_match.get((song_id,offset),0)+1
+    #                 if counter_match[(song_id,offset)]>max_vote:
+    #                     max_vote = counter_match[(song_id,offset)]
+    #                     output_song=song_id
+    #                 # matches.append((song_id, offset))
+    #     end_time= time.time()
+    #     print(f'Matching Time: {end_time - start_time} seconds')
+    #     print('Mathing Done')
+    #     # print(output_song)
+    #     return (output_song,max_vote)
         # dt_tol = 0.01
         # f_tol = self.f_tol
 
