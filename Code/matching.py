@@ -215,6 +215,26 @@ def save_hash_db(saved, path=HASH_DB_PATH):
         json.dump(raw, f, indent=2)
     os.replace(tmp, path)
 
+
+from collections import defaultdict
+import time
+import math
+from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
+
+def match_worker(args):
+    chunk, db = args
+    local_counter = defaultdict(int)
+
+    for h, qt in chunk:
+        if h in db:
+            for song_id, st in db[h]:
+                offset = round(st - qt, 2)
+                local_counter[(song_id, offset)] += 1
+
+    return local_counter
+
+
 # ---------- STEP 4: DATABASE ----------
 class FingerprintDB:
     def __init__(self,dt_tolerance=0.03, f_tolerance = 25):
@@ -226,19 +246,67 @@ class FingerprintDB:
         for h, t in hashes:
             self.db[h].append((song_id, t))
 
+    # def match(self, query_hashes, n_workers=None):
+    #     start_time = time.time()
+
+    #     if n_workers is None:
+    #         n_workers = min(8, len(query_hashes))  # safe default
+
+    #     # ---- split query_hashes into chunks ----
+    #     chunk_size = math.ceil(len(query_hashes) / n_workers)
+    #     chunks = [
+    #         query_hashes[i:i + chunk_size]
+    #         for i in range(0, len(query_hashes), chunk_size)
+    #     ]
+
+    #     # ---- parallel execution ----
+    #     with ProcessPoolExecutor(max_workers=n_workers) as executor:
+    #         results = executor.map(
+    #             match_worker,
+    #             [(chunk, self.db) for chunk in chunks]
+    #         )
+
+    #     # ---- reduce step ----
+    #     global_counter = Counter()
+    #     for local_counter in results:
+    #         global_counter.update(local_counter)
+
+    #     # ---- find best match ----
+    #     if not global_counter:
+    #         return ("", 0)
+
+    #     (output_song, _), max_vote = max(
+    #         global_counter.items(),
+    #         key=lambda x: x[1]
+    #     )
+
+    #     end_time = time.time()
+    #     print(f"Matching Time: {end_time - start_time:.3f} seconds")
+    #     print("Matching Done")
+
+    #     return output_song, max_vote
+
     def match(self, query_hashes):
         matches = []
+        counter_match={}
+        max_vote = -1
+        output_song = ''
         start_time= time.time()
         for h, qt in query_hashes:
             # print(len(self.db))
             if h in self.db:
                 for song_id, st in self.db[h]:
                     offset = round(st - qt, 2)  # time alignment
-                    matches.append((song_id, offset))
+                    counter_match[(song_id,offset)]= counter_match.get((song_id,offset),0)+1
+                    if counter_match[(song_id,offset)]>max_vote:
+                        max_vote = counter_match[(song_id,offset)]
+                        output_song=song_id
+                    # matches.append((song_id, offset))
         end_time= time.time()
         print(f'Matching Time: {end_time - start_time} seconds')
         print('Mathing Done')
-        return matches
+        # print(output_song)
+        return (output_song,max_vote)
         # dt_tol = 0.01
         # f_tol = self.f_tol
 
@@ -283,17 +351,17 @@ class FingerprintDB:
 # ---------- STEP 5: SONG IDENTIFICATION ----------
 def identify_song(db, query_hashes):
     
-    matches = db.match(query_hashes)
-    if not matches:
-        return None
-    start_time=time.time()
+    # matches = db.match(query_hashes)
+    # if not matches:
+    #     return None
+    # start_time=time.time()
 
-    counter = Counter(matches)
-    best_match, votes = counter.most_common(1)[0]
-    print(counter.most_common(20))
-    song_id, offset = best_match
-    print(time.time()-start_time)
-    
+    # counter = Counter(matches)
+    # best_match, votes = counter.most_common(1)[0]
+    # print(counter.most_common(20))
+    # song_id, offset = best_match
+    # print(time.time()-start_time)
+    song_id,votes = db.match(query_hashes)
     return song_id, votes
 
 def compute_frequency_error(orig_const, query_const, time_tolerance=0.05):
@@ -418,12 +486,12 @@ def animate_constellation(signal, sr, constellation, hashes, save_path=None, int
 
     return ani
 
-def recognize_uploaded_song(file_path="query/jeena_jeena_recording.mp3"):
+def recognize_uploaded_song(file_path="/home/vibgyor/BTP/Musical_Note_Recognition/query/jeena_jeena_recording.mp3"):
     """
     file_path: path to uploaded audio file
     Returns: best match song_id or None
     """
-    MUSIC_DIR = "music_demo"
+    MUSIC_DIR = "/home/vibgyor/BTP/Musical_Note_Recognition/music_demo"
     db = FingerprintDB()
     saved_hashes = load_hash_db()
 
