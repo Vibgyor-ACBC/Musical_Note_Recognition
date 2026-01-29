@@ -493,12 +493,12 @@ def _process_song(args):
     return song_id, hashes, None
 
 
-def recognize_uploaded_song(file_path="query/jeena_jeena_recording.mp3"):
+def recognize_uploaded_song(file_path="../query/jeena_jeena_recording.mp3"):
     """
     file_path: path to uploaded audio file
     Returns: best match song_id or None
     """
-    MUSIC_DIR = "music_demo"
+    MUSIC_DIR = "../music_demo"
     db = FingerprintDB()
     saved_hashes = load_hash_db()
 
