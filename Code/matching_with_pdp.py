@@ -219,33 +219,16 @@ def save_hash_db(saved, path=HASH_DB_PATH):
 from collections import Counter
 from multiprocessing import Pool, cpu_count
 
-# # module-level worker so it is picklable by multiprocessing
-# def _process_chunk(args):
-#     chunk, db = args
-#     local = Counter()
-#     for h, qt in chunk:
-#         if h in db:
-#             for song_id, st in db[h]:
-#                 offset = round(st - qt, 2)
-#                 local[(song_id, offset)] += 1
-#     return local
-DB = None
-
-def _init_worker(db):
-    global DB
-    DB = db
-
-from collections import Counter
-
-def _process_chunk(chunk):
+# module-level worker so it is picklable by multiprocessing
+def _process_chunk(args):
+    chunk, db = args
     local = Counter()
     for h, qt in chunk:
-        if h in DB:
-            for song_id, st in DB[h]:
+        if h in db:
+            for song_id, st in db[h]:
                 offset = round(st - qt, 2)
                 local[(song_id, offset)] += 1
     return local
-
 
 # ---------- STEP 4: DATABASE ----------
 class FingerprintDB:
@@ -258,9 +241,8 @@ class FingerprintDB:
         for h, t in hashes:
             self.db[h].append((song_id, t))
             
-            
     def match(self, query_hashes):
-        # fast path
+        # fast single-threaded path for small inputs
         if len(query_hashes) < 1000:
             cnt = Counter()
             for h, qt in query_hashes:
@@ -273,17 +255,13 @@ class FingerprintDB:
             best_key, best_count = max(cnt.items(), key=lambda x: x[1])
             return best_key[0], best_count
 
-        # ---- PARALLEL PATH (WSL optimized) ----
+        # parallel path
         n_workers = min(4, cpu_count())
         chunk_size = (len(query_hashes) + n_workers - 1) // n_workers
         chunks = [query_hashes[i*chunk_size:(i+1)*chunk_size] for i in range(n_workers)]
 
-        with Pool(
-            processes=n_workers,
-            initializer=_init_worker,
-            initargs=(self.db,)
-        ) as pool:
-            results = pool.map(_process_chunk, chunks)
+        with Pool(n_workers) as pool:
+            results = pool.map(_process_chunk, [(chunk, self.db) for chunk in chunks])
 
         total = Counter()
         for r in results:
@@ -291,40 +269,8 @@ class FingerprintDB:
 
         if not total:
             return "", 0
-
         best_key, best_count = max(total.items(), key=lambda x: x[1])
         return best_key[0], best_count
-    
-    # # def match(self, query_hashes):
-    # #     # fast single-threaded path for small inputs
-    # #     if len(query_hashes) < 1000:
-    # #         cnt = Counter()
-    # #         for h, qt in query_hashes:
-    # #             if h in self.db:
-    # #                 for song_id, st in self.db[h]:
-    # #                     offset = round(st - qt, 2)
-    # #                     cnt[(song_id, offset)] += 1
-    # #         if not cnt:
-    # #             return "", 0
-    # #         best_key, best_count = max(cnt.items(), key=lambda x: x[1])
-    # #         return best_key[0], best_count
-
-    #     # parallel path
-    #     n_workers = min(3, cpu_count())
-    #     chunk_size = (len(query_hashes) + n_workers - 1) // n_workers
-    #     chunks = [query_hashes[i*chunk_size:(i+1)*chunk_size] for i in range(n_workers)]
-
-    #     with Pool(n_workers) as pool:
-    #         results = pool.map(_process_chunk, [(chunk, self.db) for chunk in chunks])
-
-    #     total = Counter()
-    #     for r in results:
-    #         total.update(r)
-
-    #     if not total:
-    #         return "", 0
-    #     best_key, best_count = max(total.items(), key=lambda x: x[1])
-    #     return best_key[0], best_count
 
     # def match(self, query_hashes):
     #     got_max=0
@@ -525,34 +471,34 @@ def animate_constellation(signal, sr, constellation, hashes, save_path=None, int
 
     return ani
 
-# def _process_song(args):
-#     song_id, path = args
-#     try:
-#         sig, sr = librosa.load(path, sr=None, mono=True)
-#     except Exception as e:
-#         return song_id, None, f"Failed to load {path}: {e}"
+def _process_song(args):
+    song_id, path = args
+    try:
+        sig, sr = librosa.load(path, sr=None, mono=True)
+    except Exception as e:
+        return song_id, None, f"Failed to load {path}: {e}"
 
-#     peak = np.max(np.abs(sig)) if sig.size else 0.0
-#     if peak == 0:
-#         return song_id, None, f"Warning: {path} appears silent"
+    peak = np.max(np.abs(sig)) if sig.size else 0.0
+    if peak == 0:
+        return song_id, None, f"Warning: {path} appears silent"
 
-#     sig = sig / peak
+    sig = sig / peak
 
-#     mag, freqs, times = stft(sig, sr)
-#     filtered_mag = time_frequency_filter(mag, filter_size=(3, 3))
-#     const_map = get_constellation_map(filtered_mag, freqs, times)
-#     hashes = generate_hashes(const_map)
+    mag, freqs, times = stft(sig, sr)
+    filtered_mag = time_frequency_filter(mag, filter_size=(3, 3))
+    const_map = get_constellation_map(filtered_mag, freqs, times)
+    hashes = generate_hashes(const_map)
 
-#     hashes = [(tuple(h), float(t)) for h, t in hashes]
-#     return song_id, hashes, None
+    hashes = [(tuple(h), float(t)) for h, t in hashes]
+    return song_id, hashes, None
 
 
-def recognize_uploaded_song(file_path="../query/jeena_jeena_recording.mp3"):
+def recognize_uploaded_song(file_path="query/jeena_jeena_recording.mp3"):
     """
     file_path: path to uploaded audio file
     Returns: best match song_id or None
     """
-    MUSIC_DIR = "../music_demo"
+    MUSIC_DIR = "music_demo"
     db = FingerprintDB()
     saved_hashes = load_hash_db()
 
