@@ -27,6 +27,16 @@ echo "Recording to $OUT"
 echo "Press Ctrl+C to stop"
 
 arecord -D $MIC -f S16_LE -c $CH -r $RATE | \
-ffmpeg -y -f s16le -ar $RATE -ac $CH -i - "$OUT"
+ffmpeg -y -loglevel error -f s16le -ar $RATE -ac $CH -i - "$OUT"
 
 echo "Saved: $OUT"
+
+PYTHON_SCRIPT="$SCRIPT_DIR/matching_with_pdp.py"
+
+if [ ! -f "$PYTHON_SCRIPT" ]; then
+  echo "Error: fingerprint.py not found in $SCRIPT_DIR"
+  exit 1
+fi
+
+echo "Running song recognition..."
+python3 "$PYTHON_SCRIPT" -song "$OUT"
