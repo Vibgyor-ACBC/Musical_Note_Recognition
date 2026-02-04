@@ -10,6 +10,7 @@ import json
 import os
 import bisect
 import time
+import argparse
 
 # ---------- STEP 1: STFT ----------
 def stft(signal, sr, fft_size=2048, hop_size=512, window=np.hanning):
@@ -493,7 +494,7 @@ def _process_song(args):
     return song_id, hashes, None
 
 
-def recognize_uploaded_song(file_path="../query/jeena_jeena_recording.mp3"):
+def recognize_uploaded_song(file_path):
     """
     file_path: path to uploaded audio file
     Returns: best match song_id or None
@@ -589,7 +590,16 @@ def recognize_uploaded_song(file_path="../query/jeena_jeena_recording.mp3"):
 
 # ---------- DEMO ----------
 if __name__ == "__main__":
-    print(recognize_uploaded_song())
+    parser = argparse.ArgumentParser(description="Audio fingerprinting-based song recognition")
+    parser.add_argument(
+        "-song",
+        type=str,
+        default="../query/jeena_jeena_recording.mp3",
+        help="Path to query audio file"
+    )
+    args = parser.parse_args()
+
+    print(recognize_uploaded_song(args.song))
 
     # Database
     # db = FingerprintDB()
